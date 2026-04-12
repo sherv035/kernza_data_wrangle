@@ -1,0 +1,192 @@
+---
+title: "Kernza Data Wrangle Project"
+author: "Christopher SHerve"
+date: "2026-04-10"
+output: html_document
+---
+
+## Setup
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(googlesheets4)
+library(lattice)
+library(lubridate)
+library(dplyr)
+
+#Have to be opened highlighted together
+library(emmeans)
+library(multcomp)
+library(multcompView)
+
+data <- read_sheet("https://docs.google.com/spreadsheets/d/19PMOIW0rAYr2lyLcVFwa9s3r11L_3wGTnLcTglAhpTI/edit?usp=sharing")
+```
+```{r}
+# Make treatment a factor with readable labels
+data <- data %>%
+  mutate(
+    trt = factor(trt, 
+                 levels = c(21, 22, 25, 23),
+                 labels = c("0 kg N", "60 kg N", "Kernza/Alfalfa 40 kg N", "120 kg N")),
+    year = factor(year),
+    location = factor(location)
+  )
+```
+
+
+
+```{r}
+## Data Overview
+glimpse(data)
+summary(data)
+```
+## Visualizations
+
+### Grain yield by treatment
+####This makes a boxplot where the box shows the spread of yield values for each treatment, and the middle line is the median. facet_wrap(~year) splits it into two side-by-side panels, one for 2014 and one for 2015, so you can see if the pattern changes between years
+```{r}
+ggplot(data, aes(x = trt, y = grain_yield, fill = trt)) +
+  geom_boxplot() +
+  facet_wrap(~year) +
+  labs(title = "Grain yield by treatment",
+       x = "Treatment", y = "Grain yield (kg/ha)") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+```
+
+### Soil moisture by depth and location
+#### pivot_longer is the key here this data has two separate columns (vwc_50cm and vwc_100cm) but you want to plot them together. This reshapes the data so depth becomes one column and the moisture value becomes another. Then it plots both depths as lines over time, colored by location (Waseca vs Lamberton), with separate panels per depth.
+```{r}
+data %>%
+  pivot_longer(cols = c(vwc_50cm, vwc_100cm),
+               names_to = "depth", values_to = "vwc") %>%
+  ggplot(aes(x = year, y = vwc, color = location, group = interaction(location, depth))) +
+  geom_point() + geom_line() +
+  facet_wrap(~depth) +
+  labs(title = "Soil moisture by depth and location",
+       y = "Volumetric water content") +
+  theme_bw()
+```
+
+### Nitrate leaching by treatment and year
+```{r}
+ggplot(data, aes(x = trt, y = NO3_mean, fill = year)) +
+  geom_boxplot() +
+  labs(title = "Nitrate leaching by treatment",
+       x = "Treatment", y = "NO3 (mg/L)") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### Biomass proportion by tissue type
+```{r}
+data %>%
+  select(year, location, trt, grain_yield, iwg_straw_yield, legume_biomass) %>%
+  pivot_longer(cols = c(grain_yield, iwg_straw_yield, legume_biomass),
+               names_to = "tissue", values_to = "biomass") %>%
+  ggplot(aes(x = trt, y = biomass, fill = tissue)) +
+  geom_bar(stat = "identity", position = "fill") +
+  facet_wrap(~year) +
+  labs(title = "Proportion of biomass by tissue type",
+       y = "Proportion", x = "Treatment") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## ANOVA Research Questions
+
+### Question 1: Does grain yield differ by treatment?
+
+**Hypothesis:** Grain yield varies significantly among nitrogen fertilizer treatments.
+
+```{r}
+model1 <- aov(grain_yield ~ trt, data = data)
+summary(model1)
+
+em1 <- emmeans(model1, ~ trt)
+cld(em1, Letters = letters)
+```
+
+### Question 2: Does nitrate leaching differ by treatment?
+
+**Hypothesis:** Nitrate leaching (NO3) varies by treatment due to differences in N input.
+
+```{r}
+model2 <- aov(NO3_mean ~ trt, data = data)
+summary(model2)
+
+em2 <- emmeans(model2, ~ trt)
+cld(em2, Letters = letters)
+```
+
+### Question 3: Does plant height differ by location?
+
+**Hypothesis:** Plant height differs between Waseca and Lamberton due to site conditions.
+
+```{r}
+model3 <- aov(plant_height ~ location, data = data)
+summary(model3)
+
+em3 <- emmeans(model3, ~ location)
+cld(em3, Letters = letters)
+```
+
+## Regression Research Questions
+
+### Question 1: Does grain yield increase with N fertilizer rate?
+
+**Hypothesis:** Grain yield increases with nitrogen fertilizer rate.
+
+```{r}
+reg1 <- lm(grain_yield ~ n_fertilizer, data = data)
+summary(reg1)
+
+ggplot(data, aes(x = n_fertilizer, y = grain_yield)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(title = "Grain yield vs N fertilizer rate",
+       x = "N fertilizer (kg/ha)", y = "Grain yield (kg/ha)") +
+  theme_bw()
+```
+
+### Question 2: Does soil moisture affect nitrate leaching?
+
+**Hypothesis:** Higher soil moisture is associated with greater nitrate leaching.
+
+```{r}
+reg2 <- lm(NO3_mean ~ vwc_100cm, data = data)
+summary(reg2)
+
+ggplot(data, aes(x = vwc_100cm, y = NO3_mean)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(title = "Nitrate leaching vs soil moisture at 100cm",
+       x = "VWC at 100cm", y = "NO3 mean (mg/L)") +
+  theme_bw()
+```
+
+### Question 3: Does lodging score increase with plant height?
+
+**Hypothesis:** Taller plants are more prone to lodging.
+
+```{r}
+reg3 <- lm(lodging_score ~ plant_height, data = data)
+summary(reg3)
+
+ggplot(data, aes(x = plant_height, y = lodging_score)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(title = "Lodging score vs plant height",
+       x = "Plant height (cm)", y = "Lodging score") +
+  theme_bw()
+```
+
+## Data overview
+
+```{r}
+glimpse(data)
+```
+Then click the Knit button at the top (blue yarn icon) to make sure it runs.
+Go ahead and create that file — what packages were you planning to use? Share that list and I'll write out your full starter template!
