@@ -8,6 +8,7 @@ output: html_document
 ## Setup
 
 ```{r setup, include=FALSE}
+# Packages to be installed 
 library(tidyverse)
 library(ggplot2)
 library(googlesheets4)
@@ -15,15 +16,10 @@ library(lattice)
 library(lubridate)
 library(dplyr)
 
-#Have to be opened highlighted together
-library(emmeans)
-library(multcomp)
-library(multcompView)
-
-data <- read_sheet("https://docs.google.com/spreadsheets/d/19PMOIW0rAYr2lyLcVFwa9s3r11L_3wGTnLcTglAhpTI/edit?usp=sharing")
+data <- read_sheet("https://docs.google.com/spreadsheets/d/1RZdL8GhR8bRt3f6G9pSMFs50jnjGvhdAajJhmgkZ0xs/edit?usp=sharing")
 ```
 ```{r}
-# Make treatment a factor with readable labels
+# Make treatment a factor with readable labels----
 data <- data %>%
   mutate(
     trt = factor(trt, 
@@ -32,28 +28,162 @@ data <- data %>%
     year = factor(year),
     location = factor(location)
   )
-```
-
-
-
-```{r}
+str(data)
+view(data)
 ## Data Overview
 glimpse(data)
 summary(data)
 ```
-## Visualizations
 
-### Grain yield by treatment
-####This makes a boxplot where the box shows the spread of yield values for each treatment, and the middle line is the median. facet_wrap(~year) splits it into two side-by-side panels, one for 2014 and one for 2015, so you can see if the pattern changes between years
+
 ```{r}
-ggplot(data, aes(x = trt, y = grain_yield, fill = trt)) +
-  geom_boxplot() +
-  facet_wrap(~year) +
-  labs(title = "Grain yield by treatment",
-       x = "Treatment", y = "Grain yield (kg/ha)") +
+# Long Format by adding Lysimete depths----
+# ── STEP 1: Add n_fertilizer as numeric for regression ──────
+# (it's already numeric but confirm it stayed that way after factoring)
+str(data$n_fertilizer)  # should say num
+
+# ── STEP 2: Create a monoculture-only subset for yield~N regression
+data_mono <- data %>% filter(crops == "TLI")
+
+# ── STEP 3: Create 2015-only subset for deeper soil depths
+data_2015 <- data %>% filter(year == "2015")
+
+# ── STEP 4: Create long format for soil depth comparisons
+soil_long <- data %>%
+  dplyr::select(year, location, plot, trt, crops, n_fertilizer,
+                NO3_N_ppm_0_6, NO3_N_ppm_6_18, NO3_N_ppm_18_30) %>%
+  pivot_longer(cols = c(NO3_N_ppm_0_6, NO3_N_ppm_6_18, NO3_N_ppm_18_30),
+               names_to = "depth",
+               values_to = "NO3_soil_ppm") %>%
+  mutate(depth = recode(depth,
+    "NO3_N_ppm_0_6"   = "0-6 inches",
+    "NO3_N_ppm_6_18"  = "6-18 inches",
+    "NO3_N_ppm_18_30" = "18-30 inches")) %>%
+  filter(!is.na(NO3_soil_ppm))
+
+# ── STEP 5: Quick check
+glimpse(soil_long)
+
+soil_long <- soil_long %>%
+  mutate(depth = factor(depth, 
+                        levels = c("0-6 inches", 
+                                   "6-18 inches", 
+                                   "18-30 inches")))
+```
+### Grain yield by treatment----
+####Grain yield was compared across four treatments and two years using boxplots. Individual plot values are overlaid as points to show within-treatment variability. Year 3 (2014) and Year 4 (2015) are shown separately to capture stand age effects documented in Jungers et al. 2017.
+```{r}
+data %>%
+  group_by(location, trt, year) %>%
+  summarise(mean_lodging = round(mean(lodging_score, na.rm=TRUE), 2),
+            mean_yield   = round(mean(grain_yield, na.rm=TRUE), 2))
+
+# Summarize first
+yield_summary <- data %>%
+  group_by(location, trt, year) %>%
+  summarise(
+    mean_yield = mean(grain_yield, na.rm = TRUE),
+    se_yield   = sd(grain_yield, na.rm = TRUE) / sqrt(n()),
+    .groups = 'drop'
+  )
+
+glimpse(yield_summary)
+view(yield_summary)
+
+# Plot
+ggplot(yield_summary, aes(x = trt, y = mean_yield, fill = year)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8), 
+           width = 0.7, alpha = 0.85) +
+  geom_errorbar(aes(ymin = mean_yield - se_yield,
+                    ymax = mean_yield + se_yield),
+                position = position_dodge(0.8),
+                width = 0.25) +
+  facet_wrap(~location) +
+  scale_fill_manual(values = c("2014" = "#2E75B6", 
+                                "2015" = "#70AD47")) +
+  labs(
+    title   = "Mean Kernza grain yield by treatment, location, and year",
+    subtitle = "Error bars show ± 1 standard error | n = 4 plots per treatment",
+    x       = "Treatment",
+    y       = "Mean grain yield (kg ha⁻¹)",
+    fill    = "Year") +
   theme_bw() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        legend.position = "none")
+  theme(
+    axis.text.x      = element_text(angle = 35, hjust = 1),
+    strip.background = element_rect(fill = "grey90"),
+    strip.text       = element_text(face = "bold"))
+```
+
+```{r}
+# Grain yield in relation to N-Trt, Location, Year, Lodging Score----
+# Summarize both yield and lodging
+yield_lodging_plot <- data %>%
+  group_by(location, trt, year) %>%
+  summarise(
+    mean_yield   = mean(grain_yield, na.rm = TRUE),
+    se_yield     = sd(grain_yield, na.rm = TRUE) / sqrt(n()),
+    mean_lodging = mean(lodging_score, na.rm = TRUE),
+    se_lodging   = sd(lodging_score, na.rm = TRUE) / sqrt(n()),
+    .groups = 'drop'
+  )
+
+# Panel 1 — Yield
+p1 <- ggplot(yield_lodging_plot, 
+             aes(x = trt, y = mean_yield, fill = year)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8),
+           width = 0.7, alpha = 0.85) +
+  geom_errorbar(aes(ymin = mean_yield - se_yield,
+                    ymax = mean_yield + se_yield),
+                position = position_dodge(0.8), width = 0.25) +
+  facet_wrap(~location) +
+  scale_fill_manual(values = c("2014" = "#2E75B6",
+                                "2015" = "#70AD47")) +
+  labs(title    = "Grain yield and lodging by treatment, location, and year",
+       subtitle = "Waseca yield increased despite higher lodging — ruling out lodging as cause",
+       x        = NULL,
+       y        = "Mean yield (kg ha⁻¹)",
+       fill     = "Year") +
+  theme_bw() +
+  theme(
+    axis.text.x      = element_blank(),
+    axis.ticks.x     = element_blank(),
+    strip.background = element_rect(fill = "grey90"),
+    strip.text       = element_text(face = "bold"))
+
+# Panel 2 — Lodging
+p2 <- ggplot(yield_lodging_plot,
+             aes(x = trt, y = mean_lodging, fill = year)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8),
+           width = 0.7, alpha = 0.85) +
+  geom_errorbar(aes(ymin = mean_lodging - se_lodging,
+                    ymax = mean_lodging + se_lodging),
+                position = position_dodge(0.8), width = 0.25) +
+  facet_wrap(~location) +
+  scale_fill_manual(values = c("2014" = "#2E75B6",
+                                "2015" = "#70AD47")) +
+  labs(x    = "Treatment",
+       y    = "Mean lodging score",
+       fill = "Year") +
+  theme_bw() +
+  theme(
+    axis.text.x      = element_text(angle = 35, hjust = 1),
+    strip.background = element_rect(fill = "grey90"),
+    strip.text       = element_text(face = "bold"))
+
+# Stack them vertically using patchwork
+install.packages("patchwork")
+library(patchwork)
+p1 / p2
+
+
+combined_plot <- p1 / p2
+
+ggsave(filename = "~/GitHub/kernza_data_wrangle/dw_kernza_project/yield_lodging_by_location_year.png",
+       plot     = combined_plot,
+       width    = 10,
+       height   = 8,
+       dpi      = 300)
+
 ```
 
 ### Soil moisture by depth and location
@@ -93,6 +223,13 @@ data %>%
        y = "Proportion", x = "Treatment") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+#Have to be opened highlighted together
+library(emmeans)
+library(multcomp)
+library(multcompView)
 ```
 
 ## ANOVA Research Questions
