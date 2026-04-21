@@ -13,6 +13,7 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 library(tidyverse)
 library(readxl)
 library(knitr)
+library(googlesheets4)
 ```
 
 ## Step 1 — Load Raw Data Files
@@ -21,7 +22,7 @@ Four raw Excel files are loaded. Each file required different parsing
 due to inconsistent formatting across lab report templates. We first
 examine the structure of each file before cleaning.
 
-```{r load-yield}
+```{r}
 # Yield data — primary source for plot numbers, treatments, and agronomic measurements
 yield_raw <- read_excel("data/raw/Yield.xlsx", skip = 1)
 glimpse(yield_raw)
@@ -77,9 +78,7 @@ yield_clean %>%
 
 ## Step 3 — Load and Inspect Lysimeter Data
 
-The lysimeter file contains two sheets with different formats — 2014
-data from Agvise Laboratories and 2015 data from Research Analytical
-Laboratory (UMN). Each sheet requires separate parsing.
+### The lysimeter file contains two sheets with different formats — 2014 data from Agvise Laboratories and 2015 data from Research Analytical Laboratory (UMN). Each sheet requires separate parsing.
 
 ```{r inspect-lysimeter}
 # Check 2014 sheet structure
@@ -123,7 +122,7 @@ lys_2014_clean %>%
   ) %>%
   kable(caption = "2014 BDL summary")
 
-#### 2015
+#### 3b 2015
 lys_2015_raw <- read_excel("data/raw/Lysimeter.xlsx", 
                             sheet = "2015", skip = 13)
 names(lys_2015_raw)
@@ -176,7 +175,7 @@ lys_2015_clean %>%
   )
 ```
 ```{r}
-# Combining of lysimeter data ----
+# 3c Combining of lysimeter data ----
 # Combine both years
 lys_all <- bind_rows(
   lys_2014_clean %>% 
@@ -197,6 +196,15 @@ lys_summary <- lys_all %>%
     majority_bdl     = as.numeric(mean(is_bdl) > 0.5),
     .groups = 'drop'
   )
+
+# Correct any plot-year means that are exactly zero
+# All BDL readings were substituted at 0.05 before averaging
+# A mean of zero means all readings were BDL zeros from 2014 lab
+lys_summary <- lys_summary %>%
+  mutate(NO3_mean_mgL = if_else(NO3_mean_mgL == 0, 0.05, NO3_mean_mgL))
+
+# Verify fix
+lys_summary %>% filter(NO3_mean_mgL == 0)  # should return 0 rows
 
 # Check
 nrow(lys_summary)
@@ -386,5 +394,42 @@ write.csv(combined_clean,
 cat("Final dataset saved\n")
 cat("Rows:", nrow(combined_clean), "\n")
 cat("Columns:", ncol(combined_clean), "\n")
+```
+
+
+```{r} 
+# New sheet called "combined_clean_final_v2"
+# This adds a new tab without touching the existing Sheet1
+sheet_write(combined_clean,
+            ss = "https://docs.google.com/spreadsheets/d/1RZdL8GhR8bRt3f6G9pSMFs50jnjGvhdAajJhmgkZ0xs/edit?usp=sharing",
+            sheet = "combined_clean_final_v2")
+```
+
+```{r}
+## Step 9 — Save Final Dataset----
+
+### The cleaned and integrated dataset is written to Google Sheets for use in the analysis document. A new sheet tab is created rather than overwriting the original data as a precaution. The corrected dataset includes the BDL fix for plot 1313 (2014) where NO3_mean_mgL was incorrectly recorded as 0 instead of 0.05 mg/L.
+
+# Write corrected final dataset to new Google Sheets tab
+sheet_write(combined_clean,
+            ss = "https://docs.google.com/spreadsheets/d/1RZdL8GhR8bRt3f6G9pSMFs50jnjGvhdAajJhmgkZ0xs/edit?usp=sharing",
+            sheet = "combined_clean_final_v2")
+
+# Also save locally as CSV backup
+write.csv(combined_clean,
+          "combined_clean_final.csv",
+          row.names = FALSE)
+
+cat("Google Sheet updated — new tab: combined_clean_final_v2\n")
+cat("Local CSV saved: combined_clean_final.csv\n")
+cat("Rows:", nrow(combined_clean), "\n")
+cat("Columns:", ncol(combined_clean), "\n")
+
+# Final verification
+combined_clean %>%
+  filter(plot == 1313, year == 2014) %>%
+  dplyr::select(plot, year, NO3_mean_mgL, n_bdl_readings, pct_bdl_readings) %>%
+  kable(caption = "Verification: plot 1313 2014 BDL fix confirmed")
+```
 ```
 

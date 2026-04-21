@@ -16,7 +16,10 @@ library(lattice)
 library(lubridate)
 library(dplyr)
 
-data <- read_sheet("https://docs.google.com/spreadsheets/d/1RZdL8GhR8bRt3f6G9pSMFs50jnjGvhdAajJhmgkZ0xs/edit?usp=sharing")
+data <- read_sheet(
+  "https://docs.google.com/spreadsheets/d/1RZdL8GhR8bRt3f6G9pSMFs50jnjGvhdAajJhmgkZ0xs/edit?usp=sharing",
+  sheet = "combined_clean_final_v2"
+)
 ```
 ```{r}
 # Make treatment a factor with readable labels----
