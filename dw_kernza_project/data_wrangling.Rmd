@@ -1,0 +1,403 @@
+---
+title: "data_wrangling"
+author: "Christopher SHerve"
+date: "2026-04-14"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+library(tidyverse)
+library(readxl)
+library(knitr)
+```
+
+## Step 1 — Load Raw Data Files
+
+Four raw Excel files are loaded. Each file required different parsing
+due to inconsistent formatting across lab report templates. We first
+examine the structure of each file before cleaning.
+
+```{r load-yield}
+# Yield data — primary source for plot numbers, treatments, and agronomic measurements
+yield_raw <- read_excel("data/raw/Yield.xlsx", skip = 1)
+glimpse(yield_raw)
+```
+
+## Step 2 — Clean Yield Data
+
+The yield file is the primary source for plot numbers, treatment codes,
+block structure, and agronomic measurements. Column names were generic
+due to Excel formatting so columns are selected by position and renamed
+explicitly. Treatment codes were verified against lysimeter and soils
+files with all 32 plots confirmed across both years.
+
+```{r clean-yield}
+yield_clean <- yield_raw %>%
+  dplyr::select(
+    year            = 1,
+    location        = 2,
+    plot            = 3,
+    replicate       = 4,
+    trt             = 5,
+    crops           = 6,
+    legume_inclusion = 7,
+    n_fertilizer    = 8,
+    grain_yield     = 9,
+    iwg_straw_yield = 10,
+    legume_biomass  = 11,
+    plant_height    = 12,
+    lodging_score   = 13
+  ) %>%
+  filter(!is.na(plot)) %>%
+  mutate(
+    year            = as.numeric(year),
+    plot            = as.numeric(plot),
+    trt             = as.numeric(trt),
+    n_fertilizer    = as.numeric(n_fertilizer),
+    grain_yield     = as.numeric(grain_yield),
+    iwg_straw_yield = as.numeric(iwg_straw_yield),
+    legume_biomass  = as.numeric(legume_biomass),
+    location        = case_when(
+      plot < 2000  ~ "Waseca",
+      plot >= 2000 ~ "Lamberton")
+  )
+
+glimpse(yield_clean)
+
+# Verify treatment codes
+yield_clean %>%
+  distinct(trt, crops, n_fertilizer) %>%
+  arrange(trt) %>%
+  kable(caption = "Treatment code verification")
+```
+
+## Step 3 — Load and Inspect Lysimeter Data
+
+The lysimeter file contains two sheets with different formats — 2014
+data from Agvise Laboratories and 2015 data from Research Analytical
+Laboratory (UMN). Each sheet requires separate parsing.
+
+```{r inspect-lysimeter}
+# Check 2014 sheet structure
+lys_2014_raw <- read_excel("data/raw/Lysimeter.xlsx", 
+                            sheet = "2014", skip = 14)
+glimpse(lys_2014_raw)
+```
+
+```{r}
+### 3a — Clean 2014 Lysimeter Data
+
+#### The 2014 lab reported below detection limit (BDL)values as numeric zero. Sampling occurred in May, June, July, September, and October. August was not sampled — coinciding with grain harvest operations (mid-August; Jungers et al. 2017).
+
+lys_2014_clean <- lys_2014_raw %>%
+  dplyr::select(
+    plot    = `1105`,
+    month   = `May`,
+    NO3_raw = `0.628`
+  ) %>%
+  filter(!is.na(plot), !is.na(NO3_raw)) %>%
+  mutate(
+    plot    = as.numeric(plot),
+    NO3_raw = as.numeric(NO3_raw),
+    year    = 2014,
+    is_bdl  = NO3_raw == 0,
+    NO3_sub = if_else(is_bdl, 0.05, NO3_raw)
+  ) %>%
+  filter(!is.na(NO3_sub))
+
+# Check months present
+lys_2014_clean %>%
+  distinct(month) %>%
+  kable(caption = "2014 lysimeter sampling months")
+
+# BDL summary
+lys_2014_clean %>%
+  summarise(
+    n_total = n(),
+    n_bdl   = sum(is_bdl),
+    pct_bdl = round(mean(is_bdl) * 100, 1)
+  ) %>%
+  kable(caption = "2014 BDL summary")
+
+#### 2015
+lys_2015_raw <- read_excel("data/raw/Lysimeter.xlsx", 
+                            sheet = "2015", skip = 13)
+names(lys_2015_raw)
+
+lys_2015_clean <- lys_2015_raw %>%
+  dplyr::select(
+    location  = `Waseca`,
+    plot_3    = `125`,
+    trt_code  = `I0`,
+    NO3_raw   = `< 0.1`,
+    date      = `42491`
+  ) %>%
+  filter(!is.na(plot_3), !is.na(location)) %>%
+  mutate(
+    plot_3   = as.numeric(plot_3),
+    plot     = case_when(
+      location == "Waseca"    ~ 1000 + plot_3,
+      location == "Lamberton" ~ 2000 + plot_3),
+    year     = 2015,
+    # Date is already a datetime — just extract month
+    month    = format(as.Date(date), "%b"),
+    is_bdl   = case_when(
+      str_detect(as.character(NO3_raw), "<") ~ TRUE,
+      suppressWarnings(!is.na(as.numeric(NO3_raw))) &
+        as.numeric(NO3_raw) < 0.1 ~ TRUE,
+      TRUE ~ FALSE),
+    NO3_sub  = case_when(
+      is_bdl ~ 0.05,
+      str_detect(as.character(NO3_raw), "/") ~
+        map_dbl(str_split(as.character(NO3_raw), "/"),
+                ~mean(as.numeric(str_trim(.x)), na.rm = TRUE)),
+      TRUE ~ suppressWarnings(as.numeric(NO3_raw)))
+  ) %>%
+  filter(!is.na(NO3_sub))
+
+# Check months
+distinct(lys_2015_clean, month)
+
+lys_2015_clean <- lys_2015_clean %>%
+  filter(month != "Apr")
+
+# Verify
+distinct(lys_2015_clean, month)
+nrow(lys_2015_clean)
+lys_2015_clean %>%
+  summarise(
+    n_total = n(),
+    n_bdl   = sum(is_bdl),
+    pct_bdl = round(mean(is_bdl) * 100, 1)
+  )
+
+lys_2015_clean <- lys_2015_clean %>%
+  filter(month != "Apr")
+
+# Verify
+distinct(lys_2015_clean, month)
+nrow(lys_2015_clean)
+lys_2015_clean %>%
+  summarise(
+    n_total = n(),
+    n_bdl   = sum(is_bdl),
+    pct_bdl = round(mean(is_bdl) * 100, 1)
+  )
+```
+```{r}
+# Combining of lysimeter data ----
+# Combine both years
+lys_all <- bind_rows(
+  lys_2014_clean %>% 
+    dplyr::select(plot, year, NO3_sub, is_bdl),
+  lys_2015_clean %>% 
+    dplyr::select(plot, year, NO3_sub, is_bdl)
+)
+
+# Aggregate to plot-year level
+lys_summary <- lys_all %>%
+  group_by(plot, year) %>%
+  summarise(
+    NO3_mean_mgL     = mean(NO3_sub, na.rm = TRUE),
+    n_raw_readings   = n(),
+    n_bdl_readings   = sum(is_bdl),
+    pct_bdl_readings = round(mean(is_bdl) * 100, 1),
+    any_bdl          = as.numeric(any(is_bdl)),
+    majority_bdl     = as.numeric(mean(is_bdl) > 0.5),
+    .groups = 'drop'
+  )
+
+# Check
+nrow(lys_summary)
+head(lys_summary, 10)
+
+```
+
+```{r}
+# Moisture----
+moisture_raw <- read_excel("data/raw/Moisture.xlsx")
+names(moisture_raw)
+nrow(moisture_raw)
+head(moisture_raw, 3)
+
+moisture_clean <- moisture_raw %>%
+  dplyr::select(
+    datetime = `Measurement Time`,
+    vwc      = `Measurement 1`,
+    plot     = `Plot`,
+    depth    = `depth`
+  ) %>%
+  filter(!is.na(vwc), !is.na(plot)) %>%
+  mutate(
+    plot  = as.numeric(plot),
+    year  = year(datetime),
+    depth = as.numeric(depth)
+  ) %>%
+  filter(year %in% c(2014, 2015))
+
+# Seasonal means by plot, year, depth
+moisture_summary <- moisture_clean %>%
+  group_by(plot, year, depth) %>%
+  summarise(
+    vwc_mean = round(mean(vwc, na.rm = TRUE), 4),
+    .groups  = 'drop'
+  ) %>%
+  pivot_wider(
+    names_from   = depth,
+    values_from  = vwc_mean,
+    names_prefix = "vwc_"
+  ) %>%
+  rename(
+    vwc_50cm  = vwc_50,
+    vwc_100cm = vwc_100
+  )
+
+# Check
+nrow(moisture_summary)
+head(moisture_summary)
+```
+```{r}
+moisture_summary <- moisture_summary %>%
+  filter(plot %in% yield_clean$plot)
+
+# Verify
+nrow(moisture_summary)
+distinct(moisture_summary, plot) %>% nrow()
+```
+```{r}
+# Soils----
+
+# Check 2014 soils
+soils_2014_raw <- read_excel("data/raw/Soils.xlsx", 
+                              sheet = "Soils-2014", skip = 12)
+names(soils_2014_raw)
+head(soils_2014_raw, 3)
+
+soils_2014_clean <- soils_2014_raw %>%
+  dplyr::select(
+    plot       = `plot...1`,
+    depth      = `depth`,
+    NO3_N_ppm  = `nitrate...12`,
+    NH4_N_ppm  = `ammonia`,
+    LOI_OM_pct = `LOI OM`
+  ) %>%
+  filter(!is.na(plot), !is.na(depth)) %>%
+  mutate(
+    plot       = as.numeric(plot),
+    depth      = str_trim(depth),
+    NO3_N_ppm  = as.numeric(NO3_N_ppm),
+    NH4_N_ppm  = as.numeric(NH4_N_ppm),
+    LOI_OM_pct = as.numeric(LOI_OM_pct),
+    year       = 2014
+  ) %>%
+  pivot_wider(
+    names_from  = depth,
+    values_from = c(NO3_N_ppm, NH4_N_ppm, LOI_OM_pct),
+    names_sep   = "_"
+  ) %>%
+  rename_with(~ str_replace_all(., c(
+    '_0-6"'   = '_0_6',
+    '_6-18"'  = '_6_18',
+    '_18-30"' = '_18_30'
+  )))
+
+# Check
+nrow(soils_2014_clean)
+names(soils_2014_clean)
+
+soils_2015_raw <- read_excel("data/raw/Soils.xlsx", 
+                              sheet = "Soils-2015", skip = 10)
+names(soils_2015_raw)
+head(soils_2015_raw, 5)
+
+soils_2015_clean <- soils_2015_raw %>%
+  dplyr::select(
+    sample_id  = `Sample`,
+    LOI_OM_pct = `LOI OM`,
+    NH4_N_ppm  = `NH4-N`,
+    NO3_N_ppm  = `NO3-N`,
+    TOC_pct    = `TOC`
+  ) %>%
+  # Remove header and NA rows
+  filter(!is.na(sample_id), 
+         sample_id != "ID",
+         str_detect(sample_id, "\\d")) %>%
+  mutate(
+    # Extract plot number and depth code from sample ID
+    plot       = as.numeric(str_extract(sample_id, "^\\d+")),
+    depth_code = str_trim(str_extract(sample_id, "[ABC]$")),
+    depth      = recode(depth_code,
+                        "A" = '0-6"',
+                        "B" = '6-18"',
+                        "C" = '18-30"'),
+    year       = 2015,
+    # Average duplicate readings separated by "/"
+    NO3_N_ppm  = map_dbl(str_split(as.character(NO3_N_ppm), "/"),
+                         ~mean(as.numeric(str_trim(.x)), na.rm = TRUE)),
+    NH4_N_ppm  = map_dbl(str_split(as.character(NH4_N_ppm), "/"),
+                         ~mean(as.numeric(str_trim(.x)), na.rm = TRUE)),
+    LOI_OM_pct = map_dbl(str_split(as.character(LOI_OM_pct), "/"),
+                         ~mean(as.numeric(str_trim(.x)), na.rm = TRUE)),
+    TOC_pct    = map_dbl(str_split(as.character(TOC_pct), "/"),
+                         ~mean(as.numeric(str_trim(.x)), na.rm = TRUE))
+  ) %>%
+  filter(!is.na(plot)) %>%
+  # Keep only plots in our experimental design
+  filter(plot %in% yield_clean$plot) %>%
+  dplyr::select(plot, year, depth, NO3_N_ppm, NH4_N_ppm, LOI_OM_pct, TOC_pct) %>%
+  pivot_wider(
+    names_from  = depth,
+    values_from = c(NO3_N_ppm, NH4_N_ppm, LOI_OM_pct, TOC_pct),
+    names_sep   = "_"
+  ) %>%
+  rename_with(~ str_replace_all(., c(
+    '_0-6"'   = '_0_6',
+    '_6-18"'  = '_6_18',
+    '_18-30"' = '_18_30'
+  )))
+
+# Check
+nrow(soils_2015_clean)
+names(soils_2015_clean)
+
+nrow(soils_2015_clean)
+
+# Combine soils both years
+soils_all <- bind_rows(soils_2014_clean, soils_2015_clean)
+```
+
+```{r}
+# Join all datasets----
+combined_clean <- yield_clean %>%
+  left_join(lys_summary,      by = c("plot", "year")) %>%
+  left_join(moisture_summary, by = c("plot", "year")) %>%
+  left_join(soils_all,        by = c("plot", "year"))
+
+# Final checks
+nrow(combined_clean)
+ncol(combined_clean)
+names(combined_clean)
+
+# Check missing values
+combined_clean %>%
+  summarise(across(everything(), ~sum(is.na(.)))) %>%
+  pivot_longer(everything(),
+               names_to  = "variable",
+               values_to = "n_missing") %>%
+  filter(n_missing > 0) %>%
+  arrange(desc(n_missing))
+
+# Save as the definitive final dataset
+write.csv(combined_clean,
+          "combined_clean_final.csv",
+          row.names = FALSE)
+
+cat("Final dataset saved\n")
+cat("Rows:", nrow(combined_clean), "\n")
+cat("Columns:", ncol(combined_clean), "\n")
+```
+
