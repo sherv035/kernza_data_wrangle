@@ -178,7 +178,7 @@ retains nitrogen above 100cm. The Kernza root system intercepted the N before
 it reached the lysimeter depth.
 
 ### Recommended handling
-Retain these values — they are real measurements representing genuine leaching
+Retain these values because they are real measurements representing genuine leaching
 events. Flag in analysis as high-leaching events. Note that they drive the high
 within-treatment variance that contributes to non-significant ANOVA results.
 
