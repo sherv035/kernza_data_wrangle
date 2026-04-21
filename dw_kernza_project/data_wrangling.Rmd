@@ -174,19 +174,6 @@ lys_2015_clean %>%
     n_bdl   = sum(is_bdl),
     pct_bdl = round(mean(is_bdl) * 100, 1)
   )
-
-lys_2015_clean <- lys_2015_clean %>%
-  filter(month != "Apr")
-
-# Verify
-distinct(lys_2015_clean, month)
-nrow(lys_2015_clean)
-lys_2015_clean %>%
-  summarise(
-    n_total = n(),
-    n_bdl   = sum(is_bdl),
-    pct_bdl = round(mean(is_bdl) * 100, 1)
-  )
 ```
 ```{r}
 # Combining of lysimeter data ----
@@ -305,7 +292,7 @@ soils_2014_clean <- soils_2014_raw %>%
     '_18-30"' = '_18_30'
   )))
 
-# Check
+# Check...The LOI_OM_pct deeper depths showing 32 NAs needs a note explaining the 2014 Agvise lab only measured OM at 0-6"
 nrow(soils_2014_clean)
 names(soils_2014_clean)
 
