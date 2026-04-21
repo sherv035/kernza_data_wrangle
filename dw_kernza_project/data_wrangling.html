@@ -474,9 +474,10 @@ yield_clean %&gt;%
 </div>
 <div id="step-3-load-and-inspect-lysimeter-data" class="section level2">
 <h2>Step 3 — Load and Inspect Lysimeter Data</h2>
-<p>The lysimeter file contains two sheets with different formats — 2014
+<div id="the-lysimeter-file-contains-two-sheets-with-different-formats-2014-data-from-agvise-laboratories-and-2015-data-from-research-analytical-laboratory-umn.-each-sheet-requires-separate-parsing." class="section level3">
+<h3>The lysimeter file contains two sheets with different formats — 2014
 data from Agvise Laboratories and 2015 data from Research Analytical
-Laboratory (UMN). Each sheet requires separate parsing.</p>
+Laboratory (UMN). Each sheet requires separate parsing.</h3>
 <pre class="r"><code># Check 2014 sheet structure
 lys_2014_raw &lt;- read_excel(&quot;data/raw/Lysimeter.xlsx&quot;, 
                             sheet = &quot;2014&quot;, skip = 14)
@@ -567,7 +568,7 @@ lys_2014_clean %&gt;%
 </tr>
 </tbody>
 </table>
-<pre class="r"><code>#### 2015
+<pre class="r"><code>#### 3b 2015
 lys_2015_raw &lt;- read_excel(&quot;data/raw/Lysimeter.xlsx&quot;, 
                             sheet = &quot;2015&quot;, skip = 13)
 names(lys_2015_raw)</code></pre>
@@ -641,33 +642,7 @@ distinct(lys_2015_clean, month)</code></pre>
 ##   n_total n_bdl pct_bdl
 ##     &lt;int&gt; &lt;int&gt;   &lt;dbl&gt;
 ## 1     269   156      58</code></pre>
-<pre class="r"><code>lys_2015_clean &lt;- lys_2015_clean %&gt;%
-  filter(month != &quot;Apr&quot;)
-
-# Verify
-distinct(lys_2015_clean, month)</code></pre>
-<pre><code>## # A tibble: 6 × 1
-##   month
-##   &lt;chr&gt;
-## 1 May  
-## 2 Jun  
-## 3 Jul  
-## 4 Aug  
-## 5 Sep  
-## 6 Oct</code></pre>
-<pre class="r"><code>nrow(lys_2015_clean)</code></pre>
-<pre><code>## [1] 269</code></pre>
-<pre class="r"><code>lys_2015_clean %&gt;%
-  summarise(
-    n_total = n(),
-    n_bdl   = sum(is_bdl),
-    pct_bdl = round(mean(is_bdl) * 100, 1)
-  )</code></pre>
-<pre><code>## # A tibble: 1 × 3
-##   n_total n_bdl pct_bdl
-##     &lt;int&gt; &lt;int&gt;   &lt;dbl&gt;
-## 1     269   156      58</code></pre>
-<pre class="r"><code># Combining of lysimeter data ----
+<pre class="r"><code># 3c Combining of lysimeter data ----
 # Combine both years
 lys_all &lt;- bind_rows(
   lys_2014_clean %&gt;% 
@@ -689,7 +664,19 @@ lys_summary &lt;- lys_all %&gt;%
     .groups = &#39;drop&#39;
   )
 
-# Check
+# Correct any plot-year means that are exactly zero
+# All BDL readings were substituted at 0.05 before averaging
+# A mean of zero means all readings were BDL zeros from 2014 lab
+lys_summary &lt;- lys_summary %&gt;%
+  mutate(NO3_mean_mgL = if_else(NO3_mean_mgL == 0, 0.05, NO3_mean_mgL))
+
+# Verify fix
+lys_summary %&gt;% filter(NO3_mean_mgL == 0)  # should return 0 rows</code></pre>
+<pre><code>## # A tibble: 0 × 8
+## # ℹ 8 variables: plot &lt;dbl&gt;, year &lt;dbl&gt;, NO3_mean_mgL &lt;dbl&gt;,
+## #   n_raw_readings &lt;int&gt;, n_bdl_readings &lt;int&gt;, pct_bdl_readings &lt;dbl&gt;,
+## #   any_bdl &lt;dbl&gt;, majority_bdl &lt;dbl&gt;</code></pre>
+<pre class="r"><code># Check
 nrow(lys_summary)</code></pre>
 <pre><code>## [1] 64</code></pre>
 <pre class="r"><code>head(lys_summary, 10)</code></pre>
@@ -822,7 +809,7 @@ names(soils_2014_raw)</code></pre>
     &#39;_18-30&quot;&#39; = &#39;_18_30&#39;
   )))
 
-# Check
+# Check...The LOI_OM_pct deeper depths showing 32 NAs needs a note explaining the 2014 Agvise lab only measured OM at 0-6&quot;
 nrow(soils_2014_clean)</code></pre>
 <pre><code>## [1] 32</code></pre>
 <pre class="r"><code>names(soils_2014_clean)</code></pre>
@@ -958,6 +945,61 @@ cat(&quot;Final dataset saved\n&quot;)</code></pre>
 <pre><code>## Rows: 64</code></pre>
 <pre class="r"><code>cat(&quot;Columns:&quot;, ncol(combined_clean), &quot;\n&quot;)</code></pre>
 <pre><code>## Columns: 33</code></pre>
+<pre class="r"><code># New sheet called &quot;combined_clean_final_v2&quot;
+# This adds a new tab without touching the existing Sheet1
+sheet_write(combined_clean,
+            ss = &quot;https://docs.google.com/spreadsheets/d/1RZdL8GhR8bRt3f6G9pSMFs50jnjGvhdAajJhmgkZ0xs/edit?usp=sharing&quot;,
+            sheet = &quot;combined_clean_final_v2&quot;)</code></pre>
+<pre class="r"><code>## Step 9 — Save Final Dataset----
+
+### The cleaned and integrated dataset is written to Google Sheets for use in the analysis document. A new sheet tab is created rather than overwriting the original data as a precaution. The corrected dataset includes the BDL fix for plot 1313 (2014) where NO3_mean_mgL was incorrectly recorded as 0 instead of 0.05 mg/L.
+
+# Write corrected final dataset to new Google Sheets tab
+sheet_write(combined_clean,
+            ss = &quot;https://docs.google.com/spreadsheets/d/1RZdL8GhR8bRt3f6G9pSMFs50jnjGvhdAajJhmgkZ0xs/edit?usp=sharing&quot;,
+            sheet = &quot;combined_clean_final_v2&quot;)
+
+# Also save locally as CSV backup
+write.csv(combined_clean,
+          &quot;combined_clean_final.csv&quot;,
+          row.names = FALSE)
+
+cat(&quot;Google Sheet updated — new tab: combined_clean_final_v2\n&quot;)</code></pre>
+<pre><code>## Google Sheet updated — new tab: combined_clean_final_v2</code></pre>
+<pre class="r"><code>cat(&quot;Local CSV saved: combined_clean_final.csv\n&quot;)</code></pre>
+<pre><code>## Local CSV saved: combined_clean_final.csv</code></pre>
+<pre class="r"><code>cat(&quot;Rows:&quot;, nrow(combined_clean), &quot;\n&quot;)</code></pre>
+<pre><code>## Rows: 64</code></pre>
+<pre class="r"><code>cat(&quot;Columns:&quot;, ncol(combined_clean), &quot;\n&quot;)</code></pre>
+<pre><code>## Columns: 33</code></pre>
+<pre class="r"><code># Final verification
+combined_clean %&gt;%
+  filter(plot == 1313, year == 2014) %&gt;%
+  dplyr::select(plot, year, NO3_mean_mgL, n_bdl_readings, pct_bdl_readings) %&gt;%
+  kable(caption = &quot;Verification: plot 1313 2014 BDL fix confirmed&quot;)</code></pre>
+<table>
+<caption>Verification: plot 1313 2014 BDL fix confirmed</caption>
+<thead>
+<tr class="header">
+<th align="right">plot</th>
+<th align="right">year</th>
+<th align="right">NO3_mean_mgL</th>
+<th align="right">n_bdl_readings</th>
+<th align="right">pct_bdl_readings</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="right">1313</td>
+<td align="right">2014</td>
+<td align="right">0.05</td>
+<td align="right">5</td>
+<td align="right">100</td>
+</tr>
+</tbody>
+</table>
+<p>```</p>
+</div>
 </div>
 
 

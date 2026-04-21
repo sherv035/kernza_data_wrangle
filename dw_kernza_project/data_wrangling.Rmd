@@ -396,15 +396,6 @@ cat("Rows:", nrow(combined_clean), "\n")
 cat("Columns:", ncol(combined_clean), "\n")
 ```
 
-
-```{r} 
-# New sheet called "combined_clean_final_v2"
-# This adds a new tab without touching the existing Sheet1
-sheet_write(combined_clean,
-            ss = "https://docs.google.com/spreadsheets/d/1RZdL8GhR8bRt3f6G9pSMFs50jnjGvhdAajJhmgkZ0xs/edit?usp=sharing",
-            sheet = "combined_clean_final_v2")
-```
-
 ```{r}
 ## Step 9 — Save Final Dataset----
 
