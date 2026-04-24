@@ -1,0 +1,827 @@
+---
+title: "Kernza Data Wrangle Project — Analysis"
+author: "Christopher Sherve"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+## Setup
+
+Packages are loaded and data is read from Google Sheets. The `emmeans`, 
+`multcomp`, and `multcompView` packages are loaded later immediately before 
+the ANOVA section to avoid the MASS package masking `dplyr::select()`.
+
+```{r setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(googlesheets4)
+library(lubridate)
+library(patchwork)
+library(knitr)
+
+# Resolve MASS package conflict with dplyr
+select <- dplyr::select
+filter <- dplyr::filter
+
+# Load corrected dataset from Google Sheets
+data <- read_sheet(
+  "https://docs.google.com/spreadsheets/d/1RZdL8GhR8bRt3f6G9pSMFs50jnjGvhdAajJhmgkZ0xs/edit?usp=sharing",
+  sheet = "combined_clean_final_v2"
+)
+```
+
+```{r factor-variables}
+data <- data %>%
+  mutate(
+    trt = factor(trt,
+                 levels = c(21, 22, 25, 23),
+                 labels = c("0 kg N", "60 kg N",
+                            "Kernza/Alfalfa 40 kg N", "120 kg N")),
+    year     = factor(year),
+    location = factor(location),
+    environment = paste(location, year, sep = "_")
+  )
+```
+
+```{r data-subsets, include=FALSE}
+data_mono <- data %>% filter(crops == "TLI")
+data_2015 <- data %>% filter(year == "2015")
+```
+
+---
+
+## Data Overview
+
+The primary dataset (`combined_clean_final_v2`) integrates yield, lysimeter 
+nitrate, soil moisture, and soil chemistry data from Waseca and Lamberton, MN 
+across 2014 and 2015 (Years 3 and 4 of the study). Full data cleaning and 
+QA/QC steps are documented in `data_wrangling.Rmd`, `metadata_kernza.md`, 
+and `lysimeter_QAQC_findings.md`.
+
+```{r data-overview}
+glimpse(data)
+summary(data)
+```
+
+---
+
+## Data Limitations
+
+The following limitations were identified during data wrangling and QA/QC 
+and shape the interpretation of the analyses that follow:
+
+1. **Soil organic matter at depth** — Loss-on-ignition organic matter is 
+   only available at 0-6 inch depth for 2014 (Agvise Laboratories). Deeper 
+   depths (6-18" and 18-30") are available for 2015 only (Research 
+   Analytical Laboratory, UMN).
+
+2. **Soil moisture in control plots** — EC-5 sensors were not installed in 
+   control treatment plots (trt 21, 0 kg N) by design. VWC data unavailable 
+   for 16 plots, preventing full assessment of moisture × N rate interactions.
+
+3. **Lysimeter data interpretation** — Lysimeters measure NO3 concentration 
+   in soil water at 100cm depth but do not provide drainage volume data 
+   needed to calculate leaching rates. Plot-year means compress opposing 
+   biological processes across the growing season. August 2014 is absent 
+   due to harvest logistics. For these reasons formal statistical analysis 
+   of lysimeter data is not performed in this document.
+
+4. **Post-harvest soil NO3 data exclusion** — Two factors limit the 
+   interpretability of the soil nitrate measurements: (a) lab methodology 
+   differences between years — the 2014 Agvise lab reports values in rounded 
+   increments (100% of 18-30" values at exactly 1.0 ppm; 84% of 6-18" at 
+   1.0 ppm), representing a reporting threshold effect rather than biological 
+   uniformity, while the 2015 RAL-UMN lab reports continuous decimal values 
+   with 0.05 ppm resolution; and (b) post-harvest soil NO3 reflects the 
+   cumulative outcome of multiple competing processes (plant uptake efficiency, 
+   denitrification, leaching, microbial immobilization, fall mineralization) 
+   with no way to separate their relative contributions. For these reasons, 
+   formal statistical analysis of soil NO3 data is not performed in this 
+   document.
+
+5. **Nitrogen budget in intercrop plots** — The intercrop treatment receives 
+   40 kg N ha⁻¹ of synthetic fertilizer plus variable additional nitrogen 
+   from alfalfa biological fixation. Mineralization dynamics, alfalfa biomass, 
+   and timing of N availability cannot be quantified from the available data.
+
+6. **Multi-environment trial design** — The same 32 plots were measured in 
+   both 2014 and 2015. Treatment effects are interpreted across four 
+   environments (2 locations × 2 years) rather than as independent replicates.
+
+---
+
+## Exploratory Visualizations
+
+### Grain Yield by Treatment, Location, and Year
+
+Grain yield was compared across four treatments and two years. Waseca and 
+Lamberton are shown as separate panels to reveal the site × year interaction. 
+Error bars show ± 1 standard error (n = 4 plots per treatment per location).
+
+```{r yield-bar-plot, fig.width=9, fig.height=5}
+yield_summary <- data %>%
+  group_by(location, trt, year) %>%
+  summarise(
+    mean_yield = mean(grain_yield, na.rm = TRUE),
+    se_yield   = sd(grain_yield, na.rm = TRUE) / sqrt(n()),
+    .groups = 'drop'
+  )
+
+ggplot(yield_summary, aes(x = trt, y = mean_yield, fill = year)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8),
+           width = 0.7, alpha = 0.85) +
+  geom_errorbar(aes(ymin = mean_yield - se_yield,
+                    ymax = mean_yield + se_yield),
+                position = position_dodge(0.8), width = 0.25) +
+  facet_wrap(~location) +
+  scale_fill_manual(values = c("2014" = "#2E75B6", "2015" = "#70AD47")) +
+  labs(
+    title    = "Mean Kernza grain yield by treatment, location, and year",
+    subtitle = "Error bars show ± 1 SE | n = 4 plots per treatment",
+    x        = "Treatment",
+    y        = "Mean grain yield (kg ha⁻¹)",
+    fill     = "Year") +
+  theme_bw() +
+  theme(
+    axis.text.x      = element_text(angle = 35, hjust = 1),
+    strip.background = element_rect(fill = "grey90"),
+    strip.text       = element_text(face = "bold"))
+```
+
+Lamberton yields declined dramatically from 2014 to 2015 across all treatments 
+while Waseca yields increased. This opposite directional response between sites 
+demonstrates a strong treatment × environment interaction. Site-level 
+differences in soil drainage and seasonal precipitation distribution likely 
+drive the divergent yield responses.
+
+---
+
+### Grain Yield and Lodging by Treatment, Location, and Year
+
+To evaluate whether lodging contributed to yield differences between years 
+mean grain yield and lodging score are plotted together. If lodging caused 
+yield decline, sites with higher lodging should show lower yield. Waseca shows 
+the opposite pattern — yield increased from 2014 to 2015 despite increasing 
+lodging scores — ruling out lodging as the primary cause of the Waseca yield 
+improvement.
+
+```{r yield-lodging-plot, fig.width=10, fig.height=8}
+yield_lodging_plot <- data %>%
+  group_by(location, trt, year) %>%
+  summarise(
+    mean_yield   = mean(grain_yield, na.rm = TRUE),
+    se_yield     = sd(grain_yield, na.rm = TRUE) / sqrt(n()),
+    mean_lodging = mean(lodging_score, na.rm = TRUE),
+    se_lodging   = sd(lodging_score, na.rm = TRUE) / sqrt(n()),
+    .groups = 'drop'
+  )
+
+p1 <- ggplot(yield_lodging_plot,
+             aes(x = trt, y = mean_yield, fill = year)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8),
+           width = 0.7, alpha = 0.85) +
+  geom_errorbar(aes(ymin = mean_yield - se_yield,
+                    ymax = mean_yield + se_yield),
+                position = position_dodge(0.8), width = 0.25) +
+  facet_wrap(~location) +
+  scale_fill_manual(values = c("2014" = "#2E75B6", "2015" = "#70AD47")) +
+  labs(title    = "Grain yield and lodging by treatment, location, and year",
+       subtitle = "Waseca yield increased despite higher lodging — lodging not the cause",
+       x        = NULL,
+       y        = "Mean yield (kg ha⁻¹)",
+       fill     = "Year") +
+  theme_bw() +
+  theme(
+    axis.text.x      = element_blank(),
+    axis.ticks.x     = element_blank(),
+    strip.background = element_rect(fill = "grey90"),
+    strip.text       = element_text(face = "bold"))
+
+p2 <- ggplot(yield_lodging_plot,
+             aes(x = trt, y = mean_lodging, fill = year)) +
+  geom_bar(stat = "identity", position = position_dodge(0.8),
+           width = 0.7, alpha = 0.85) +
+  geom_errorbar(aes(ymin = mean_lodging - se_lodging,
+                    ymax = mean_lodging + se_lodging),
+                position = position_dodge(0.8), width = 0.25) +
+  facet_wrap(~location) +
+  scale_fill_manual(values = c("2014" = "#2E75B6", "2015" = "#70AD47")) +
+  labs(x    = "Treatment",
+       y    = "Mean lodging score (0-10)",
+       fill = "Year") +
+  theme_bw() +
+  theme(
+    axis.text.x      = element_text(angle = 35, hjust = 1),
+    strip.background = element_rect(fill = "grey90"),
+    strip.text       = element_text(face = "bold"))
+
+p1 / p2
+```
+
+---
+
+### Soil Water NO3 at 100cm Depth — Exploratory Only
+
+Lysimeter NO3 concentrations (mg/L) from soil water samples at 100cm depth 
+are shown below as exploratory context. Formal statistical analysis is NOT 
+performed on this data due to the limitations noted above (single depth, 
+concentration without flux, seasonal averaging, August 2014 gap, and high 
+BDL frequency). Patterns suggest site-level differences between Waseca and 
+Lamberton but should be interpreted cautiously.
+
+```{r no3-plot, fig.width=9, fig.height=5}
+ggplot(data, aes(x = trt, y = NO3_mean_mgL, fill = year)) +
+  geom_boxplot(alpha = 0.7, position = position_dodge(0.8)) +
+  facet_wrap(~location) +
+  scale_fill_manual(values = c("2014" = "#2E75B6", "2015" = "#70AD47")) +
+  labs(
+    title    = "Soil water NO3 at 100cm depth by treatment, location, and year",
+    subtitle = "Exploratory visualization only — not used for formal inference",
+    x        = "Treatment",
+    y        = "Mean NO3 concentration (mg L⁻¹)",
+    fill     = "Year") +
+  theme_bw() +
+  theme(
+    axis.text.x      = element_text(angle = 35, hjust = 1),
+    strip.background = element_rect(fill = "grey90"),
+    strip.text       = element_text(face = "bold"))
+```
+
+---
+
+### Soil Moisture Field Map
+
+Seasonal mean volumetric water content (VWC) is displayed as a spatial 
+field map by plot, treatment, depth, location, and year. Each cell 
+represents one plot colored by its seasonal mean moisture. Grey cells 
+labeled "NS" indicate no sensors were installed (by design) in the 
+0 kg N control treatment.
+
+```{r moisture-field-map, fig.width=12, fig.height=8}
+moisture_field_map <- data %>%
+  dplyr::select(year, location, plot, replicate, trt, 
+                vwc_50cm, vwc_100cm) %>%
+  pivot_longer(cols = c(vwc_50cm, vwc_100cm),
+               names_to  = "depth",
+               values_to = "vwc") %>%
+  mutate(
+    depth = recode(depth,
+                   "vwc_50cm"  = "50cm depth",
+                   "vwc_100cm" = "100cm depth"),
+    depth = factor(depth, levels = c("50cm depth", "100cm depth")),
+    block = paste("Block", replicate)
+  ) %>%
+  group_by(location, year, depth, block) %>%
+  arrange(plot) %>%
+  mutate(plot_position = row_number()) %>%
+  ungroup()
+
+ggplot(moisture_field_map,
+       aes(x = factor(plot_position), 
+           y = fct_rev(factor(block)), 
+           fill = vwc)) +
+  geom_tile(color = "white", linewidth = 1.5) +
+  geom_text(aes(label = paste0(plot, "\n", 
+                                ifelse(is.na(vwc), "NS", 
+                                       round(vwc, 3)))),
+            size = 2.3, lineheight = 0.9) +
+  facet_grid(location ~ year + depth) +
+  scale_fill_gradientn(
+    colors   = c("#D35400", "#F39C12", "#F9E79F", 
+                 "#A9DFBF", "#52BE80", "#1E8449"),
+    values   = scales::rescale(c(0.13, 0.18, 0.22, 0.26, 0.30, 0.37)),
+    limits   = c(0.13, 0.37),
+    na.value = "grey80",
+    name     = "VWC\n(m³/m³)",
+    breaks   = c(0.15, 0.20, 0.25, 0.30, 0.35)) +
+  labs(
+    title    = "Soil moisture field map by plot location",
+    subtitle = "Each cell = one plot | Grey cells (NS) = control plots with no sensors",
+    x        = "Plot position within block",
+    y        = "Block") +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill = "grey90"),
+    strip.text       = element_text(face = "bold", size = 9),
+    axis.text        = element_text(size = 8),
+    panel.grid       = element_blank(),
+    panel.border     = element_rect(color = "black", linewidth = 0.5),
+    legend.position  = "right",
+    aspect.ratio     = 0.7)
+```
+
+---
+
+### Spatial Relationship — Moisture, Yield, and Treatment
+
+This three-layer visualization combines soil moisture (tile color), grain 
+yield (circle size), and treatment (circle color) in the same spatial 
+field layout. This allows simultaneous examination of moisture patterns, 
+yield variation, and treatment effects at the plot level.
+
+```{r moisture-yield-trt-map, fig.width=14, fig.height=9, dpi=150, out.width="100%"}
+moisture_yield_trt_map <- data %>%
+  dplyr::select(year, location, plot, replicate, trt, 
+                vwc_50cm, grain_yield) %>%
+  mutate(block = paste("Block", replicate)) %>%
+  group_by(location, year, block) %>%
+  arrange(plot) %>%
+  mutate(plot_position = row_number()) %>%
+  ungroup() %>%
+  filter(!is.na(grain_yield))
+
+ggplot(moisture_yield_trt_map,
+       aes(x = factor(plot_position), 
+           y = fct_rev(factor(block)))) +
+  geom_tile(aes(fill = vwc_50cm), color = "white", linewidth = 1.5) +
+  geom_point(aes(size = grain_yield, color = trt), 
+             alpha = 0.85, stroke = 1.2) +
+  geom_text(aes(label = plot), 
+            size = 2, color = "black",
+            fontface = "bold", vjust = 2.8) +
+  facet_grid(location ~ year) +
+  scale_fill_gradientn(
+    colors   = c("#D35400", "#F39C12", "#F9E79F", 
+                 "#A9DFBF", "#52BE80", "#1E8449"),
+    limits   = c(0.13, 0.37),
+    na.value = "grey85",
+    name     = "VWC 50cm\n(m³/m³)") +
+  scale_color_manual(values = c(
+    "0 kg N"                 = "#2C3E50",
+    "60 kg N"                = "#3498DB",
+    "Kernza/Alfalfa 40 kg N" = "#27AE60",
+    "120 kg N"               = "#C0392B"),
+    name = "Treatment") +
+  scale_size_continuous(
+    range = c(3, 12),
+    name  = "Grain yield\n(kg ha⁻¹)",
+    breaks = c(50, 150, 300, 500)) +
+  labs(
+    title    = "Spatial relationship: soil moisture, yield, and treatment",
+    subtitle = "Tile color = soil moisture | Circle size = yield | Circle color = treatment",
+    x        = "Plot position within block",
+    y        = "Block") +
+  theme_bw() +
+  theme(
+    strip.background = element_rect(fill = "grey90"),
+    strip.text       = element_text(face = "bold", size = 10),
+    panel.grid       = element_blank(),
+    panel.border     = element_rect(color = "black", linewidth = 0.5),
+    legend.position  = "right",
+    legend.box       = "vertical") +
+  guides(
+    fill  = guide_colorbar(order = 1),
+    size  = guide_legend(order = 2),
+    color = guide_legend(order = 3, override.aes = list(size = 5)))
+```
+
+---
+
+---
+
+## ANOVA Research Questions
+
+Packages for post-hoc comparisons are loaded here to avoid the MASS package 
+masking `dplyr::select()` earlier in the document.
+
+```{r load-anova-packages, message=FALSE, warning=FALSE}
+library(emmeans)
+library(multcomp)
+library(multcompView)
+```
+
+---
+
+### ANOVA Question 1: Does treatment affect grain yield and does this interact with environment?
+
+**Hypothesis:** The four treatments (0 kg N, 60 kg N, 120 kg N, and 
+Kernza/Alfalfa 40 kg N intercrop) will produce different grain yields, 
+and this effect will vary by environment (location × year). Specifically:
+- N fertilizer rate is expected to increase yield up to some saturation 
+  point
+- The intercrop treatment is hypothesized to outperform the 40 kg N 
+  equivalent monoculture position through N fixation by alfalfa, with 
+  the strongest benefit in year 3 (2014)
+- The intercrop advantage may diminish by year 4 (2015) as competition 
+  with the aging Kernza stand increases
+
+```{r anova-q1, fig.width=10, fig.height=5}
+model1 <- aov(grain_yield ~ trt * location * year, data = data)
+summary(model1)
+
+em1 <- emmeans(model1, ~ trt | location * year)
+cld(em1, Letters = letters)
+
+data %>%
+  ggplot(aes(x = factor(year), y = grain_yield, fill = trt)) +
+  geom_boxplot(alpha = 0.7, position = position_dodge(0.85)) +
+  facet_wrap(~location) +
+  scale_fill_manual(values = c(
+    "0 kg N"                 = "#2C3E50",
+    "60 kg N"                = "#3498DB",
+    "Kernza/Alfalfa 40 kg N" = "#2ECC71",
+    "120 kg N"               = "#C0392B")) +
+  labs(title    = "Grain yield by treatment, location, and year",
+       subtitle = "All four treatments shown | Intercrop = Kernza/Alfalfa 40 kg N",
+       x        = "Year",
+       y        = "Grain yield (kg ha⁻¹)",
+       fill     = "Treatment") +
+  theme_bw() +
+  theme(strip.background = element_rect(fill = "grey90"),
+        strip.text       = element_text(face = "bold"),
+        legend.position  = "right")
+```
+
+**Interpretation:** The ANOVA revealed two highly significant effects: 
+the main effect of treatment (p = 0.0037) and the location × year 
+interaction (p = 0.0003). The significant treatment effect confirms 
+that the four treatments produced meaningfully different grain yields 
+across the dataset. The location × year interaction reflects the opposite 
+directional yield response between sites — Waseca yields increased from 
+2014 to 2015 while Lamberton yields decreased. The absence of a 
+significant treatment × location or treatment × year interaction 
+(p = 0.82 and p = 0.70 respectively) indicates that treatment effects 
+were relatively consistent across environments, though the magnitude 
+varied.
+
+The boxplot reveals several important patterns: the 0 kg N control 
+consistently produced the lowest yields in all environments; N fertilizer 
+rate generally increased yield with some diminishing returns at 120 kg N; 
+and the intercrop treatment (40 kg N synthetic + alfalfa N fixation) 
+matched or exceeded the 120 kg N monoculture at Lamberton 2014, 
+suggesting substantial alfalfa N contribution in the year 3 environment 
+with highest yield potential. The intercrop advantage diminished in 
+year 4 (2015) at both sites.
+
+**Supplementary 2-level analysis — crop system effect:** For comparison, 
+an additional ANOVA collapses the three N rate monoculture treatments 
+(0, 60, 120 kg N) into a single "TLI monoculture" group to test whether 
+the presence of a legume intercrop alone affects yield, independent of 
+N rate variation.
+
+```{r anova-q1-crops, fig.width=8, fig.height=5}
+model1_crops <- aov(grain_yield ~ crops * location * year, data = data)
+summary(model1_crops)
+
+em1_crops <- emmeans(model1_crops, ~ crops | location * year)
+cld(em1_crops, Letters = letters)
+
+data %>%
+  ggplot(aes(x = factor(year), y = grain_yield, fill = crops)) +
+  geom_boxplot(alpha = 0.7, position = position_dodge(0.8)) +
+  facet_wrap(~location) +
+  scale_fill_manual(values = c("TLI" = "#2E75B6",
+                                "TLI/leg" = "#2ECC71")) +
+  labs(title    = "Grain yield by crop system across environments",
+       subtitle = "TLI = Kernza monoculture (pooled N rates) | TLI/leg = Kernza/alfalfa intercrop",
+       x        = "Year",
+       y        = "Grain yield (kg ha⁻¹)",
+       fill     = "Crop system") +
+  theme_bw() +
+  theme(strip.background = element_rect(fill = "grey90"),
+        strip.text       = element_text(face = "bold"))
+```
+
+Note that the crop system model shows a marginal effect (p = 0.073) 
+compared to the highly significant full treatment model (p = 0.0037). 
+The reduced statistical power reflects the fact that pooling the three 
+N rates introduces substantial within-group variance, obscuring the 
+clearer treatment-level effects visible in the 4-treatment analysis.
+
+---
+
+### ANOVA Question 2: Does plant height differ by treatment?
+
+**Hypothesis:** Plant height will increase with nitrogen fertilizer rate 
+as higher N availability promotes vegetative growth. The intercrop treatment 
+may show different height dynamics due to competition with alfalfa.
+
+```{r anova-q2, fig.width=8, fig.height=5}
+model2 <- aov(plant_height ~ trt * year, data = data)
+summary(model2)
+
+em2 <- emmeans(model2, ~ trt)
+cld(em2, Letters = letters)
+
+ggplot(data, aes(x = trt, y = plant_height, fill = year)) +
+  geom_boxplot(alpha = 0.7, position = position_dodge(0.8)) +
+  scale_fill_manual(values = c("2014" = "#2E75B6", "2015" = "#70AD47")) +
+  labs(title    = "Plant height by treatment and year",
+       subtitle = "Height measured from soil to top of seed head at physiological maturity",
+       x        = "Treatment",
+       y        = "Plant height (cm)",
+       fill     = "Year") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 35, hjust = 1))
+```
+
+---
+
+## Regression Research Questions
+
+### Regression Question 1: Does grain yield increase with N fertilizer rate?
+
+**Hypothesis:** Grain yield increases linearly with N fertilizer rate in 
+Kernza monoculture plots. Based on Jungers et al. (2017) a quadratic 
+relationship is also possible if yields decline at high N rates due to 
+lodging. The linear model is tested first.
+
+```{r regression-q1, fig.width=8, fig.height=5}
+reg1 <- lm(grain_yield ~ n_fertilizer, data = data_mono)
+
+summary(reg1)
+
+ggplot(data_mono, aes(x = n_fertilizer, y = grain_yield)) +
+  geom_point(aes(color = location, shape = year), size = 3, alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, color = "black", linewidth = 1) +
+  scale_color_manual(values = c("Waseca" = "#2E75B6",
+                                 "Lamberton" = "#E74C3C")) +
+  labs(
+    title    = "Kernza grain yield vs N fertilizer rate (monoculture only)",
+    subtitle = "Linear regression | Points colored by location, shaped by year",
+    x        = "N fertilizer rate (kg N ha⁻¹)",
+    y        = "Grain yield (kg ha⁻¹)",
+    color    = "Location",
+    shape    = "Year") +
+  theme_bw()
+```
+
+---
+
+### Regression Question 2: Where does the intercrop treatment fall on the yield ~ N rate curve?
+
+**Hypothesis:** If the alfalfa intercrop provides a yield benefit through 
+N fixation, the intercrop treatment (40 kg N ha⁻¹ synthetic + alfalfa-fixed N) 
+should produce yields comparable to or exceeding monoculture plots receiving 
+similar or higher synthetic N rates. If competition effects dominate, intercrop 
+yields will fall below the monoculture regression line at 40 kg N ha⁻¹.
+
+```{r regression-q2, fig.width=8, fig.height=5}
+ggplot() +
+  geom_smooth(data = data_mono,
+              aes(x = n_fertilizer, y = grain_yield),
+              method = "lm", se = TRUE,
+              color = "#2E75B6", fill = "#2E75B6", alpha = 0.2) +
+  geom_point(data = data_mono,
+             aes(x = n_fertilizer, y = grain_yield),
+             color = "#2E75B6", size = 2, alpha = 0.6) +
+  geom_point(data = data %>% filter(crops == "TLI/leg"),
+             aes(x = n_fertilizer, y = grain_yield),
+             color = "#2ECC71", size = 4, shape = 17) +
+  labs(
+    title    = "Intercrop yield relative to monoculture N response curve",
+    subtitle = "Blue = monoculture regression | Green triangles = intercrop",
+    x        = "Synthetic N fertilizer rate (kg N ha⁻¹)",
+    y        = "Grain yield (kg ha⁻¹)") +
+  theme_bw()
+```
+
+---
+
+### Regression Question 3: Does lodging score increase with plant height?
+
+**Hypothesis:** Taller plants are more prone to lodging due to a higher 
+center of gravity and increased wind resistance. However Jungers et al. 
+(2017) found that plant height did not explain additional variation in 
+lodging beyond the effect of N fertilizer rate, suggesting stem diameter 
+or composition may be more important than height alone.
+
+```{r regression-q3, fig.width=8, fig.height=5}
+reg3 <- lm(lodging_score ~ plant_height, data = data)
+summary(reg3)
+
+ggplot(data, aes(x = plant_height, y = lodging_score)) +
+  geom_point(aes(color = trt), size = 3, alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, color = "black") +
+  scale_color_manual(values = c(
+    "0 kg N"                 = "#D3D3D3",
+    "60 kg N"                = "#74A9CF",
+    "Kernza/Alfalfa 40 kg N" = "#2ECC71",
+    "120 kg N"               = "#2C7BB6")) +
+  labs(
+    title    = "Lodging score vs plant height",
+    subtitle = "Does plant height predict lodging susceptibility?",
+    x        = "Plant height (cm)",
+    y        = "Lodging score (0-10)",
+    color    = "Treatment") +
+  theme_bw()
+```
+
+---
+
+### Regression Question 4: Does alfalfa legume biomass correlate with Kernza grain yield in intercrop plots?
+
+**Hypothesis:** If the intercrop system primarily provides yield benefits 
+through alfalfa N fixation, larger alfalfa biomass in an intercrop plot 
+should positively correlate with Kernza grain yield in that same plot 
+because more alfalfa biomass represents more N fixation potential. 
+Alternatively, if competition for resources (water, light, nutrients) 
+dominates the intercrop dynamic, alfalfa biomass may negatively correlate 
+with Kernza yield. Testing this relationship addresses the mechanistic 
+basis for the intercrop treatment's performance observed in Regression Q2.
+
+**Statistical limitations:** This analysis uses only the 16 intercrop 
+plots (n = 4 per environment × 4 environments). Statistical power is 
+limited, and the location and year effects are expected to dominate 
+the raw correlation. The regression below controls for location and year.
+
+```{r regression-q4, fig.width=8, fig.height=5}
+data_intercrop <- data %>% 
+  filter(crops == "TLI/leg", !is.na(legume_biomass), !is.na(grain_yield))
+
+reg4 <- lm(grain_yield ~ legume_biomass + location + year, 
+           data = data_intercrop)
+summary(reg4)
+
+ggplot(data_intercrop, 
+       aes(x = legume_biomass, y = grain_yield, 
+           color = location, shape = factor(year))) +
+  geom_point(size = 4, alpha = 0.8) +
+  geom_smooth(method = "lm", se = TRUE, aes(group = location)) +
+  scale_color_manual(values = c("Waseca" = "#2E75B6",
+                                 "Lamberton" = "#E74C3C")) +
+  labs(
+    title    = "Kernza grain yield vs alfalfa biomass in intercrop plots",
+    subtitle = "Testing N fixation benefit vs resource competition",
+    x        = "Alfalfa biomass (kg ha⁻¹)",
+    y        = "Kernza grain yield (kg ha⁻¹)",
+    color    = "Location",
+    shape    = "Year") +
+  theme_bw()
+```
+
+**Interpretation:** At Lamberton, alfalfa biomass increased approximately 
+4-fold from 2014 (mean 74 kg ha⁻¹) to 2015 (mean 323 kg ha⁻¹), while 
+Kernza grain yield in the same plots declined approximately 3-fold (381 
+to 131 kg ha⁻¹). At Waseca, alfalfa biomass remained low in both years 
+due to poor establishment on the poorly drained soil. This inverse 
+relationship at Lamberton suggests that in the year 3-to-4 transition, 
+competition from established alfalfa may exceed the N fixation benefit — 
+a finding consistent with recent literature showing intercrops can 
+reduce Kernza yields in subsequent production years (Favre et al. 2024).
+
+This result highlights the complexity of perennial intercrop systems 
+and suggests future research is needed to identify management practices 
+(planting density, timing, harvest strategies) that could optimize the 
+balance between N fixation benefit and resource competition as stands age.
+
+---
+
+## Summary of Findings
+
+```{r summary-table}
+tibble(
+  Question = c(
+    "ANOVA Q1: Treatment × environment effect on grain yield",
+    "ANOVA Q2: Treatment effect on plant height",
+    "Regression Q1: Grain yield ~ N fertilizer rate (monoculture)",
+    "Regression Q2: Intercrop position on yield curve",
+    "Regression Q3: Lodging score ~ plant height",
+    "Regression Q4: Kernza grain yield ~ alfalfa legume biomass (intercrop plots)"
+  ),
+  `Response Variable` = c(
+    "grain_yield", "plant_height",
+    "grain_yield", "grain_yield", "lodging_score", "grain_yield"
+  )
+) %>%
+  kable(caption = "Summary of research questions and response variables")
+```
+
+---
+
+## Future Directions
+
+### Context: Documented June 2014 flooding at Waseca
+
+The opposite yield trajectories between Waseca (2014→2015: +47% grain yield) 
+and Lamberton (2014→2015: -49% to -66% grain yield across treatments) are 
+the most striking pattern in this dataset. Weather records clarify a key 
+driver at Waseca: June 2014 was the wettest month in Minnesota state 
+history, with Waseca receiving 12.31 inches of rainfall — roughly four 
+times the historical June average (Minnesota DNR 2014). Multiple flash 
+flooding events affected Waseca County during the month, with flooding 
+documented by National Weather Service alerts. The flooding occurred 
+during the critical stem elongation and early reproductive development 
+stages of Kernza on the poorly drained Webster clay loam soil, producing 
+prolonged saturated and anaerobic conditions. The 2014 Waseca yields 
+therefore represent suppressed yields under a documented extreme flooding 
+event rather than typical year 3 Kernza performance.
+
+The observation that 2015 Waseca grain yields nearly doubled while plant 
+height, straw biomass, and lodging remained relatively stable suggests 
+the crop expressed more of its reproductive potential once flooding stress 
+was removed. This framing — combined with Lamberton's contrasting 2014-2015 
+decline under normal conditions — raises testable questions about the 
+mechanistic basis of year-over-year yield variation in perennial Kernza 
+stands.
+
+### Research priority 1: Does root biomass accumulation drive the year 
+1-to-year 2 Kernza yield decline?
+
+The well-documented year 1-to-year 2 grain yield decline in Kernza stands 
+remains mechanistically unresolved and is identified as a key challenge 
+for perennial grain crop development (Cattani & Asselin 2018; De Pauw 
+et al. 2022). One plausible hypothesis emerges from established principles 
+of perennial grass physiology.
+
+Root maintenance respiration in perennial plants can consume over 50% of 
+the carbon utilized within the root system (Eissenstat 1993). Because this 
+maintenance cost scales with absolute root biomass, a larger year 2 Kernza 
+root system would impose a substantially higher absolute carbon demand than 
+a smaller year 1 system, even if proportional allocation rules remained 
+unchanged. Similarly, nitrogen remobilization from vegetative tissues to 
+developing grain (accounting for 65-90% of grain N in cereals; Hu et al. 
+2016) must compete with N demands from an expanding root system.
+
+Under this source-sink competition framework, the year 1-to-2 yield 
+decline may result from increased absolute carbon and nitrogen consumption 
+by root maintenance rather than from changes in allocation priorities. 
+The plant's photosynthetic capacity remains similar, but a larger fraction 
+of fixed photosynthate and cycled nitrogen is consumed by root maintenance 
+before it becomes available for grain filling.
+
+**Testable predictions:**
+
+- Root biomass should increase substantially between year 1 and year 2 
+  Kernza stands (already documented by Jungers and Gutknecht)
+- Absolute carbon allocation to root maintenance respiration should 
+  increase proportionally with root biomass
+- Grain yield should correlate inversely with root maintenance carbon 
+  demand across stand ages
+- Nitrogen remobilization efficiency to grain should decrease as root 
+  system N sink strength increases
+
+**Methods:** Destructive root biomass sampling, root respiration 
+measurements (chamber or isotope-tracer methods), whole-plant carbon 
+allocation studies using 13C labeling, and plant tissue N analysis 
+at key phenological stages. These methods are established in related 
+perennial grass research (Carbone et al. 2007; Yao and Chen 2019) and 
+transferable to Kernza.
+
+**Status in literature:** No published study has directly tested this 
+relationship in Kernza. Existing Kernza research documents root biomass 
+increases with stand age but frames this as beneficial for soil carbon 
+storage rather than as a potential yield-limiting cost. This represents 
+a specific, tractable research gap.
+
+### Research priority 2: What regulatory pathways control root biomass 
+development in Kernza, and how does waterlogging stress alter them?
+
+This priority is contingent on Priority 1 findings. If root biomass 
+accumulation is confirmed as a significant contributor to yield decline, 
+identifying regulatory pathways that control root biomass development 
+could inform breeding targets for improved yield stability across years.
+
+The 2014 Waseca flooding provides a natural experimental context. The 
+flooding reduced grain yield while apparently limiting normal root 
+expansion. Understanding the molecular basis of this response has 
+implications for both site selection (Kernza is promoted for marginal 
+sites that may include poorly drained areas) and breeding for 
+waterlogging tolerance.
+
+**Approach:** Controlled waterlogging experiments using established 
+methods (container flooding, hydroponic hypoxia, rhizotrons; Barickman 
+et al. 2019; Kong et al. 2022) could recreate the 2014 Waseca conditions 
+in a controlled setting. Comparison of root growth, development, and 
+architecture between stressed and unstressed plants would provide the 
+phenotypic baseline. If phenotypic differences are substantial, targeted 
+gene expression analysis could investigate candidate pathways including 
+hypoxia response (ERF-VII transcription factors), root meristem 
+regulation, and carbohydrate allocation signaling.
+
+**Research sequence rationale:** Priority 1 must precede Priority 2 
+because phenotypic characterization of the root-yield relationship 
+provides the foundation for any molecular investigation. Investing in 
+gene expression work before confirming the phenotypic relationship risks 
+targeting the wrong mechanism.
+
+### Additional data limitations and future research opportunities
+
+Beyond the two priority research questions, several specific limitations 
+of this dataset suggest additional future work:
+
+- **Early-season N availability proxy** — May lysimeter NO3 concentrations 
+  may indirectly indicate N moving past the plant root zone before plant 
+  uptake. An inverse relationship was observed in Lamberton 2014 but 
+  could not be confirmed across sites or years. Direct early-season soil 
+  or plant tissue N measurements would rigorously test this relationship.
+
+- **In-season moisture dynamics** — Seasonal mean VWC values cannot 
+  resolve within-season stress periods or test moisture optimum 
+  hypotheses. Higher-resolution moisture monitoring including control 
+  plots would enable this testing.
+
+- **Intercrop N budget quantification** — The intercrop treatment's 
+  total N input (synthetic + alfalfa-fixed) could not be quantified 
+  without additional measurements of alfalfa biomass, N fixation rates, 
+  mineralization rates, and Kernza plant tissue N at key phenological 
+  stages.
+
+- **Leaching flux calculation** — True nitrate leaching rates require 
+  concurrent drainage volume measurements at 100cm. Pairing lysimeter 
+  concentrations with water flux measurements would enable direct N loss 
+  estimation and strengthen site-level comparisons.
+
+---
+
+*Data wrangling and QA/QC fully documented in `data_wrangling.Rmd`.*  
+*Reference: Jungers et al. 2017. Agron. J. 109:462–472.*
