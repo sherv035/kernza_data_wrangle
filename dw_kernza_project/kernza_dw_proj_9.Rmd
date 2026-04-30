@@ -788,7 +788,7 @@ and Lamberton (2014→2015: -49% to -66% grain yield across treatments) are
 the most striking pattern in this dataset. Weather records clarify a key 
 driver at Waseca: June 2014 was the wettest month in Minnesota state 
 history, with Waseca receiving 12.31 inches of rainfall is approximately 
-times the historical June average (Minnesota DNR 2014). Multiple flash 
+four times the historical June average (Minnesota DNR 2014). Multiple flash 
 flooding events affected Waseca County during the month, with flooding 
 documented by National Weather Service alerts. The flooding occurred 
 during the critical stem elongation and early reproductive development 
@@ -883,34 +883,6 @@ because phenotypic characterization of the root-yield relationship
 provides the foundation for any molecular investigation. Investing in 
 gene expression work before confirming the phenotypic relationship risks 
 targeting the wrong mechanism.
-
-### Additional data limitations and future research opportunities
-
-Beyond the two priority research questions, several specific limitations 
-of this dataset suggest additional future work:
-
-- **Early-season N availability proxy**  May lysimeter NO3 concentrations 
-  may indirectly indicate N moving past the plant root zone before plant 
-  uptake. An inverse relationship was observed in Lamberton 2014 but 
-  could not be confirmed across sites or years. Direct early-season soil 
-  or plant tissue N measurements would rigorously test this relationship.
-
-- **In-season moisture dynamics** Seasonal mean VWC values cannot 
-  resolve within-season stress periods or test moisture optimum 
-  hypotheses. Higher-resolution moisture monitoring including control 
-  plots would enable this testing.
-
-- **Intercrop N budget quantification** The intercrop treatment's 
-  total N input (synthetic + alfalfa-fixed) could not be quantified 
-  without additional measurements of alfalfa biomass, N fixation rates, 
-  mineralization rates, and Kernza plant tissue N at key phenological 
-  stages.
-
-- **Leaching flux calculation** True nitrate leaching rates require 
-  concurrent drainage volume measurements at 100cm. Pairing lysimeter 
-  concentrations with water flux measurements would enable direct N loss 
-  estimation and strengthen site-level comparisons.
-
 ---
 
 *Data wrangling and QA/QC fully documented in `data_wrangling.Rmd`.*  
