@@ -74,7 +74,7 @@ and shape the interpretation of the analyses that follow:
    depths (6-18" and 18-30") are available for 2015 only (Research 
    Analytical Laboratory, UMN).
 
-2. **Soil moisture in control plots** — EC-5 sensors were not installed in 
+2. **Soil moisture in control plots** Sensors were not installed in 
    control treatment plots (trt 21, 0 kg N) by design. VWC data unavailable 
    for 16 plots, preventing full assessment of moisture × N rate interactions.
 
@@ -147,10 +147,10 @@ ggplot(yield_summary, aes(x = trt, y = mean_yield, fill = year)) +
     strip.text       = element_text(face = "bold"))
 ```
 
-Lamberton yields declined dramatically from 2014 to 2015 across all treatments 
+Lamberton yields declined dramatically (which is expected) from 2014 to 2015 across all treatments 
 while Waseca yields increased. This opposite directional response between sites 
-demonstrates a strong treatment × environment interaction. Site-level 
-differences in soil drainage and seasonal precipitation distribution likely 
+demonstrates a strong treatment × environment interaction and not expected. Site-level 
+differences in soil drainage and seasonal precipitation distribution could 
 drive the divergent yield responses.
 
 ---
@@ -160,8 +160,8 @@ drive the divergent yield responses.
 To evaluate whether lodging contributed to yield differences between years 
 mean grain yield and lodging score are plotted together. If lodging caused 
 yield decline, sites with higher lodging should show lower yield. Waseca shows 
-the opposite pattern — yield increased from 2014 to 2015 despite increasing 
-lodging scores — ruling out lodging as the primary cause of the Waseca yield 
+the opposite pattern where yield increased from 2014 to 2015 despite increasing 
+lodging scores and ruling out lodging as the primary cause of the Waseca yield 
 improvement.
 
 ```{r yield-lodging-plot, fig.width=10, fig.height=8}
@@ -222,10 +222,10 @@ p1 / p2
 ### Soil Water NO3 at 100cm Depth — Exploratory Only
 
 Lysimeter NO3 concentrations (mg/L) from soil water samples at 100cm depth 
-are shown below as exploratory context. Formal statistical analysis is NOT 
+are shown below as exploratory context. Statistical analysis is not 
 performed on this data due to the limitations noted above (single depth, 
-concentration without flux, seasonal averaging, August 2014 gap, and high 
-BDL frequency). Patterns suggest site-level differences between Waseca and 
+concentration, seasonal averaging, August 2014 gap, and high 
+below detection limit (BDL) frequency. Patterns suggest site differences between Waseca and 
 Lamberton but should be interpreted cautiously.
 
 ```{r no3-plot, fig.width=9, fig.height=5}
@@ -253,8 +253,8 @@ ggplot(data, aes(x = trt, y = NO3_mean_mgL, fill = year)) +
 Seasonal mean volumetric water content (VWC) is displayed as a spatial 
 field map by plot, treatment, depth, location, and year. Each cell 
 represents one plot colored by its seasonal mean moisture. Grey cells 
-labeled "NS" indicate no sensors were installed (by design) in the 
-0 kg N control treatment.
+labeled "NS" indicate no sensor data was available in the 
+0 kg N control treatment. There seems to be a bit of spatial variation which is exhibited by the blocking. 
 
 ```{r moisture-field-map, fig.width=12, fig.height=8}
 moisture_field_map <- data %>%
@@ -396,11 +396,10 @@ library(multcompView)
 **Hypothesis:** The four treatments (0 kg N, 60 kg N, 120 kg N, and 
 Kernza/Alfalfa 40 kg N intercrop) will produce different grain yields, 
 and this effect will vary by environment (location × year). Specifically:
-- N fertilizer rate is expected to increase yield up to some saturation 
-  point
-- The intercrop treatment is hypothesized to outperform the 40 kg N 
-  equivalent monoculture position through N fixation by alfalfa, with 
-  the strongest benefit in year 3 (2014)
+- N fertilizer rate is expected to increase yield up to some optimized point
+- The intercrop treatment is hypothesized to perform similarly or better than 60 kg N and 120 kg N
+  through N fixation by alfalfa.
+- Optimizing fertilizing treatment for IWG is also being tested.  
 - The intercrop advantage may diminish by year 4 (2015) as competition 
   with the aging Kernza stand increases
 
@@ -431,26 +430,31 @@ data %>%
         legend.position  = "right")
 ```
 
-**Interpretation:** The ANOVA revealed two highly significant effects: 
-the main effect of treatment (p = 0.0037) and the location × year 
+**Interpretation:** The ANOVA revealed two highly significant effects. 
+The main effect of treatment (p = 0.0037) and the location × year 
 interaction (p = 0.0003). The significant treatment effect confirms 
 that the four treatments produced meaningfully different grain yields 
 across the dataset. The location × year interaction reflects the opposite 
-directional yield response between sites — Waseca yields increased from 
+directional yield response between sites. Waseca yields increased from 
 2014 to 2015 while Lamberton yields decreased. The absence of a 
 significant treatment × location or treatment × year interaction 
 (p = 0.82 and p = 0.70 respectively) indicates that treatment effects 
-were relatively consistent across environments, though the magnitude 
-varied.
+were relatively consistent across environments. 
 
 The boxplot reveals several important patterns: the 0 kg N control 
-consistently produced the lowest yields in all environments; N fertilizer 
-rate generally increased yield with some diminishing returns at 120 kg N; 
-and the intercrop treatment (40 kg N synthetic + alfalfa N fixation) 
+consistently produced the lowest yields in all environments. N fertilizer 
+rate generally increased yield with some diminishing returns at 120 kg N.  
+The intercrop treatment (40 kg N synthetic + alfalfa N fixation) 
 matched or exceeded the 120 kg N monoculture at Lamberton 2014, 
 suggesting substantial alfalfa N contribution in the year 3 environment 
 with highest yield potential. The intercrop advantage diminished in 
-year 4 (2015) at both sites.
+year 4 (2015) at Lamberton.
+
+The intercropped Kernza treatment does have far less variation in terms of yield
+in comparison to the non intercropped treatments.  Given the flooding occured in 
+Waseca, it is safe to say based on this data it would be beneficial to have an
+intercropped treatment that matches a mono culture treatment.  Also having an 
+intercropped treatment with no nitrogen application.  
 
 **Supplementary 2-level analysis — crop system effect:** For comparison, 
 an additional ANOVA collapses the three N rate monoculture treatments 
@@ -513,7 +517,12 @@ ggplot(data, aes(x = trt, y = plant_height, fill = year)) +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 35, hjust = 1))
 ```
-
+**Interpretation:** it is significant that treatment of nitrogen application will 
+improve plant height versus no nitrogen application.  There is not a significant 
+difference between the nitrogen applied treatments, but the intercropped treatment 
+does have a higher averaged plant height than the monocropped treatments.  
+I think the obvious question goes back to having a intercropped treatmnet that matches 
+one of the monocropped treatments and comparing yield and plant height.  
 ---
 
 ## Regression Research Questions
@@ -526,7 +535,7 @@ relationship is also possible if yields decline at high N rates due to
 lodging. The linear model is tested first.
 
 ```{r regression-q1, fig.width=8, fig.height=5}
-reg1 <- lm(grain_yield ~ n_fertilizer, data = data_mono)
+reg1 <- lm(grain_yield ~ n_fertilizer+location, data = data_mono)
 
 summary(reg1)
 

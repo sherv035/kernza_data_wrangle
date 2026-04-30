@@ -14,6 +14,7 @@ library(tidyverse)
 library(readxl)
 library(knitr)
 library(googlesheets4)
+library(lattice)
 ```
 
 ## Step 1 — Load Raw Data Files
